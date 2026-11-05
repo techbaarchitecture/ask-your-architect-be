@@ -1,5 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { z } from "zod";
+const quickQuestionSchema = z.object({
+  title: z.string().trim().min(1).max(80),
+  question: z.string().trim().min(1).max(500),
+});
 export const settingsSchema = z.object({
   provider: z.enum(["openai", "openai-compatible", "anthropic", "gemini"]),
   model: z.string().trim().min(1).max(200),
@@ -16,6 +20,12 @@ export const settingsSchema = z.object({
   ]),
   disclaimer: z.string().max(4000),
   apiKey: z.string().max(4096).optional(),
+  quickQuestions: z.object({
+    en: z.array(quickQuestionSchema).length(4),
+    es: z.array(quickQuestionSchema).length(4),
+    zh: z.array(quickQuestionSchema).length(4),
+    vi: z.array(quickQuestionSchema).length(4),
+  }),
 });
 export function encrypt(value: string, key: string) {
   const iv = randomBytes(12);

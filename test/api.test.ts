@@ -80,6 +80,8 @@ test("public defaults expose no secrets and health is available", async () => {
     assert.equal(c.data.questionLimit, 3);
     assert.equal(c.data.configured, false);
     assert.equal(c.data.apiKey, undefined);
+    assert.equal(c.data.quickQuestions.en.length, 4);
+    assert.equal(c.data.quickQuestions.vi[0].title, "Khám phá không gian");
     assert.equal((await h.request("/api/health")).data.ok, true);
     assert.deepEqual(
       (

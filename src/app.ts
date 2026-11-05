@@ -4,6 +4,10 @@ import {
   publicSettings,
   settingsSchema,
 } from "./settings.js";
+import {
+  DEFAULT_QUICK_QUESTIONS,
+  normalizeQuickQuestions,
+} from "./quick-questions.js";
 import { complete, completeStream } from "./provider.js";
 import {
   DAILY_PAUSE_CODE,
@@ -86,6 +90,7 @@ const defaults = {
   companyUrl: "",
   disclaimer:
     "General information only; not a substitute for a licensed professional.",
+  quickQuestions: DEFAULT_QUICK_QUESTIONS,
 };
 export function createApp(options: Options) {
   const db = new DatabaseSync(options.dbPath);
@@ -98,14 +103,20 @@ export function createApp(options: Options) {
   db.prepare("INSERT OR IGNORE INTO settings VALUES(1,?)").run(
     JSON.stringify(defaults),
   );
-  const settings = () =>
-    JSON.parse(
+  const settings = () => {
+    const stored = JSON.parse(
       (
         db.prepare("SELECT value FROM settings WHERE id=1").get() as {
           value: string;
         }
       ).value,
-    );
+    ) as Record<string, unknown>;
+    return {
+      ...defaults,
+      ...stored,
+      quickQuestions: normalizeQuickQuestions(stored.quickQuestions),
+    } as typeof defaults & { encryptedKey?: string };
+  };
   const usage = (device: string) => {
     const used = Number(
       (
@@ -188,6 +199,7 @@ export function createApp(options: Options) {
       disclaimer: s.disclaimer,
       questionLimit: s.questionLimit,
       configured: !!s.encryptedKey,
+      quickQuestions: s.quickQuestions,
     });
   });
   app.get("/api/public/usage", (req, res) => {
