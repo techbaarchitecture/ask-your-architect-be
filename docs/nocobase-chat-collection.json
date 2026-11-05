@@ -1,0 +1,124 @@
+{
+  "name": "aya_architecture_chats",
+  "title": "Ask Your Architect — Chat History",
+  "template": "general",
+  "autoGenId": false,
+  "titleField": "question",
+  "filterTargetKey": "id",
+  "logging": true,
+  "createdAt": true,
+  "updatedAt": true,
+  "createdBy": true,
+  "updatedBy": true,
+  "fields": [
+    {
+      "name": "id",
+      "type": "snowflakeId",
+      "interface": "snowflakeId",
+      "primaryKey": true,
+      "autoIncrement": false,
+      "allowNull": false,
+      "uiSchema": {
+        "type": "number",
+        "title": "ID",
+        "x-component": "InputNumber",
+        "x-read-pretty": true
+      }
+    },
+    {
+      "name": "event_id",
+      "type": "string",
+      "interface": "input",
+      "allowNull": false,
+      "unique": true,
+      "uiSchema": {
+        "type": "string",
+        "title": "Event ID",
+        "x-component": "Input"
+      }
+    },
+    {
+      "name": "visitor_id",
+      "type": "string",
+      "interface": "input",
+      "allowNull": false,
+      "uiSchema": {
+        "type": "string",
+        "title": "Anonymous visitor ID",
+        "x-component": "Input"
+      }
+    },
+    {
+      "name": "question",
+      "type": "text",
+      "interface": "textarea",
+      "allowNull": false,
+      "uiSchema": {
+        "type": "string",
+        "title": "Architecture question",
+        "x-component": "Input.TextArea"
+      }
+    },
+    {
+      "name": "answer",
+      "type": "text",
+      "interface": "textarea",
+      "allowNull": false,
+      "uiSchema": {
+        "type": "string",
+        "title": "AI answer",
+        "x-component": "Input.TextArea"
+      }
+    },
+    {
+      "name": "asked_at",
+      "type": "date",
+      "interface": "datetime",
+      "allowNull": false,
+      "uiSchema": {
+        "type": "string",
+        "title": "Asked at",
+        "x-component": "DatePicker",
+        "x-component-props": {
+          "showTime": true
+        }
+      }
+    },
+    {
+      "name": "answered_at",
+      "type": "date",
+      "interface": "datetime",
+      "allowNull": false,
+      "uiSchema": {
+        "type": "string",
+        "title": "Answered at",
+        "x-component": "DatePicker",
+        "x-component-props": {
+          "showTime": true
+        }
+      }
+    },
+    {
+      "name": "provider",
+      "type": "string",
+      "interface": "input",
+      "allowNull": false,
+      "uiSchema": {
+        "type": "string",
+        "title": "AI provider",
+        "x-component": "Input"
+      }
+    },
+    {
+      "name": "model",
+      "type": "string",
+      "interface": "input",
+      "allowNull": false,
+      "uiSchema": {
+        "type": "string",
+        "title": "AI model",
+        "x-component": "Input"
+      }
+    }
+  ]
+}
