@@ -1,6 +1,8 @@
 # BA Architecture API
 
-This folder is the Node backend. Pair it with sibling frontend `ask-your-architect` / `FE` for local browser integration tests.
+Independent private repository: `hoangpham17/ask-your-architect-be`.
+Frontend repository: `hoangpham17/ask-your-architect-fe`.
+Clone as sibling `BE` and `FE` directories to run the frontend's optional browser integration test.
 
 Local-first TypeScript / Express backend, Node **24+** and persistent SQLite (`node:sqlite`). Default listener: **127.0.0.1:4100**. No provider key is seeded and no live AI calls are made until an administrator supplies one.
 

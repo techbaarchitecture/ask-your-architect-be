@@ -1,8 +1,15 @@
-name: Verify backend
+name: Verify and deploy backend
+
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: aya-be-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -17,3 +24,38 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm audit --omit=dev
+
+  deploy:
+    needs: backend
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rsync API source and rebuild container
+        env:
+          SSH_KEY: ${{ secrets.AYA_SSH_KEY }}
+          HOST: ${{ secrets.AYA_SSH_HOST }}
+          USER: ${{ secrets.AYA_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ENV=prod
+          DEST=/opt/ask-your-architect/be/
+          HEALTH=https://askyourarchitect.org/api/health
+          if [ "${GITHUB_REF_NAME}" = dev ]; then
+            ENV=dev
+            DEST=/opt/ask-your-architect-dev/be/
+            HEALTH=https://dev.askyourarchitect.org/api/health
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          RSH="ssh -i $HOME/.ssh/id_ed25519 -o IdentitiesOnly=yes"
+          rsync -az --delete \
+            -e "$RSH" \
+            --exclude node_modules --exclude dist --exclude data --exclude .env \
+            --exclude .git --exclude docker-compose.yml \
+            ./ "$USER@$HOST:$DEST"
+          $RSH "$USER@$HOST" "/usr/local/bin/aya-release-be $ENV"
+          curl -fsS --max-time 30 "$HEALTH"
+          echo DEPLOY_OK

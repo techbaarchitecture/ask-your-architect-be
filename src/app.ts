@@ -72,12 +72,12 @@ const defaults = {
   model: "gpt-4o-mini",
   baseUrl: "https://api.openai.com/v1",
   systemPrompt:
-    "You provide general architecture and design advice for BA Architecture. Ask clarifying questions. Do not claim to replace a licensed architect, engineer, or local code review.",
+    "You provide general architecture and design advice for B+A Architecture. Ask clarifying questions. Do not claim to replace a licensed architect, engineer, or local code review.",
   temperature: 0.7,
   maxTokens: 1024,
   questionLimit: 3,
-  welcomeText: "Welcome to BA Architecture. How can we help?",
-  companyName: "BA Architecture",
+  welcomeText: "Welcome to B+A Architecture. How can we help?",
+  companyName: "B+A Architecture",
   companyUrl: "",
   disclaimer:
     "General information only; not a substitute for a licensed professional.",

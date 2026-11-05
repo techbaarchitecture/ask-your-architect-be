@@ -75,7 +75,7 @@ test("public defaults expose no secrets and health is available", async () => {
   try {
     const c = await h.request("/api/public/config");
     assert.equal(c.status, 200);
-    assert.equal(c.data.companyName, "BA Architecture");
+    assert.equal(c.data.companyName, "B+A Architecture");
     assert.equal(c.data.companyUrl, "");
     assert.equal(c.data.questionLimit, 3);
     assert.equal(c.data.configured, false);
