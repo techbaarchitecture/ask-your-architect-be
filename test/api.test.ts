@@ -381,6 +381,69 @@ test("chat reserves quota atomically, persists on restart, and refunds provider 
   }
 });
 
+test("chat returns a guest-safe daily pause when the provider spend limit is hit", async () => {
+  const fixture = createServer(async (req, res) => {
+    res.statusCode = 402;
+    res.setHeader("content-type", "application/json");
+    res.end(
+      JSON.stringify({ error: { message: "Key has exceeded its spending limit" } }),
+    );
+  });
+  fixture.listen(0, "127.0.0.1");
+  await once(fixture, "listening");
+  const h = await harness();
+  try {
+    const token = (
+      await h.request("/api/admin/login", "POST", {
+        email: "admin@test.local",
+        password: "test-password-long-enough",
+      })
+    ).data.token;
+    const settings = (
+      await h.request("/api/admin/settings", "GET", undefined, token)
+    ).data;
+    assert.equal(
+      (
+        await h.request(
+          "/api/admin/settings",
+          "PUT",
+          {
+            ...settings,
+            provider: "openai-compatible",
+            apiKey: "fixture-key",
+            baseUrl: `http://127.0.0.1:${(fixture.address() as { port: number }).port}/v1`,
+          },
+          token,
+        )
+      ).status,
+      200,
+    );
+    const paused = await h.request("/api/chat", "POST", {
+      deviceId: "daily-pause-device",
+      messages: [{ role: "user", content: "Design a house" }],
+    });
+    assert.equal(paused.status, 503);
+    assert.equal(paused.data.code, "DAILY_PAUSE");
+    assert.match(paused.data.error, /come back tomorrow/i);
+    assert.equal(/\$|credit|budget|spend/i.test(JSON.stringify(paused.data)), false);
+    assert.equal(
+      (
+        await h.request(
+          "/api/public/usage",
+          "GET",
+          undefined,
+          undefined,
+          "daily-pause-device",
+        )
+      ).data.used,
+      0,
+    );
+  } finally {
+    await h.close();
+    await new Promise<void>((r) => fixture.close(() => r()));
+  }
+});
+
 test("HTTP security restricts origins, validates devices/messages and caps request bodies", async () => {
   const h = await harness();
   try {

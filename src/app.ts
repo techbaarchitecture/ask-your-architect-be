@@ -6,6 +6,11 @@ import {
 } from "./settings.js";
 import { complete, completeStream } from "./provider.js";
 import {
+  DAILY_PAUSE_CODE,
+  DAILY_PAUSE_MESSAGE,
+  isDailyCapacityError,
+} from "./daily-pause.js";
+import {
   ARCHITECTURE_ONLY_POLICY,
   assessArchitectureScope,
   architectureRefusal,
@@ -296,14 +301,20 @@ export function createApp(options: Options) {
         model: s.model,
       });
       res.json({ reply, usage: usage(device) });
-    } catch {
+    } catch (err) {
       db.prepare("UPDATE quota SET used=MAX(used-1,0) WHERE device=?").run(
         device,
       );
       if (!res.headersSent) {
-        res
-          .status(502)
-          .json({ error: "Provider request failed. Please try again." });
+        if (isDailyCapacityError(err)) {
+          res
+            .status(503)
+            .json({ error: DAILY_PAUSE_MESSAGE, code: DAILY_PAUSE_CODE });
+        } else {
+          res
+            .status(502)
+            .json({ error: "Provider request failed. Please try again." });
+        }
       }
     } finally {
       slot.leave();
@@ -405,12 +416,18 @@ export function createApp(options: Options) {
         }
       } catch (streamErr) {
         if (!slot.ac.signal.aborted) {
-          const message =
-            streamErr instanceof Error
+          const daily = isDailyCapacityError(streamErr);
+          const message = daily
+            ? DAILY_PAUSE_MESSAGE
+            : streamErr instanceof Error
               ? streamErr.message
               : "Provider request failed";
           res.write(
-            `data: ${JSON.stringify({ type: "error", error: message })}\n\n`,
+            `data: ${JSON.stringify({
+              type: "error",
+              error: message,
+              ...(daily ? { code: DAILY_PAUSE_CODE } : {}),
+            })}\n\n`,
           );
         }
         db.prepare("UPDATE quota SET used=MAX(used-1,0) WHERE device=?").run(
@@ -446,19 +463,27 @@ export function createApp(options: Options) {
       }
 
       res.end();
-    } catch {
+    } catch (err) {
       db.prepare("UPDATE quota SET used=MAX(used-1,0) WHERE device=?").run(
         device,
       );
       if (!res.headersSent) {
-        res
-          .status(502)
-          .json({ error: "Provider request failed. Please try again." });
+        if (isDailyCapacityError(err)) {
+          res
+            .status(503)
+            .json({ error: DAILY_PAUSE_MESSAGE, code: DAILY_PAUSE_CODE });
+        } else {
+          res
+            .status(502)
+            .json({ error: "Provider request failed. Please try again." });
+        }
       } else if (!res.writableEnded) {
+        const daily = isDailyCapacityError(err);
         res.write(
           `data: ${JSON.stringify({
             type: "error",
-            error: "Provider request failed. Please try again.",
+            error: daily ? DAILY_PAUSE_MESSAGE : "Provider request failed. Please try again.",
+            ...(daily ? { code: DAILY_PAUSE_CODE } : {}),
           })}\n\n`,
         );
         res.end();
