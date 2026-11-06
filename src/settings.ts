@@ -13,6 +13,14 @@ export const settingsSchema = z.object({
   maxTokens: z.number().int().min(1).max(32768),
   questionLimit: z.number().int().min(1).max(10000),
   welcomeText: z.string().max(4000),
+  welcomeTexts: z
+    .object({
+      en: z.string().trim().min(1).max(4000),
+      es: z.string().trim().min(1).max(4000),
+      zh: z.string().trim().min(1).max(4000),
+      vi: z.string().trim().min(1).max(4000),
+    })
+    .optional(),
   companyName: z.string().trim().min(1).max(200),
   companyUrl: z.union([
     z.literal(""),

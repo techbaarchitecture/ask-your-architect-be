@@ -106,3 +106,41 @@ export function normalizeQuickQuestions(raw: unknown): QuickQuestions {
   }
   return next;
 }
+
+export type WelcomeTexts = Record<Locale, string>;
+
+export const DEFAULT_WELCOME: WelcomeTexts = {
+  en: "Welcome to B+A Architecture. How can we help?",
+  es: "Bienvenido a B+A Architecture. ¿En qué podemos ayudar?",
+  zh: "欢迎来到 B+A Architecture。我们能为你做些什么？",
+  vi: "Chào mừng đến B+A Architecture. Chúng tôi có thể giúp gì?",
+};
+
+const WELCOME_PACKS: Record<string, WelcomeTexts> = {
+  [DEFAULT_WELCOME.en]: DEFAULT_WELCOME,
+  "What are you building?": {
+    en: "What are you building?",
+    es: "¿Qué estás construyendo?",
+    zh: "你在建造什么？",
+    vi: "Bạn đang xây gì?",
+  },
+};
+
+export function normalizeWelcomeTexts(
+  raw: unknown,
+  welcomeText?: string,
+): WelcomeTexts {
+  const next: WelcomeTexts = { ...DEFAULT_WELCOME };
+  const seed = String(welcomeText ?? "").trim();
+  const pack = WELCOME_PACKS[seed];
+  if (pack) Object.assign(next, pack);
+  else if (seed) next.en = seed.slice(0, 4000);
+  if (raw && typeof raw === "object") {
+    const record = raw as Record<string, unknown>;
+    for (const locale of LOCALES) {
+      const value = String(record[locale] ?? "").trim();
+      if (value) next[locale] = value.slice(0, 4000);
+    }
+  }
+  return next;
+}

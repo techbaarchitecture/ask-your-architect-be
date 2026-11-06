@@ -6,7 +6,9 @@ import {
 } from "./settings.js";
 import {
   DEFAULT_QUICK_QUESTIONS,
+  DEFAULT_WELCOME,
   normalizeQuickQuestions,
+  normalizeWelcomeTexts,
 } from "./quick-questions.js";
 import { complete, completeStream } from "./provider.js";
 import {
@@ -85,7 +87,8 @@ const defaults = {
   temperature: 0.7,
   maxTokens: 1024,
   questionLimit: 3,
-  welcomeText: "Welcome to B+A Architecture. How can we help?",
+  welcomeText: DEFAULT_WELCOME.en,
+  welcomeTexts: DEFAULT_WELCOME,
   companyName: "B+A Architecture",
   companyUrl: "",
   disclaimer:
@@ -111,10 +114,16 @@ export function createApp(options: Options) {
         }
       ).value,
     ) as Record<string, unknown>;
+    const welcomeTexts = normalizeWelcomeTexts(
+      stored.welcomeTexts,
+      typeof stored.welcomeText === "string" ? stored.welcomeText : undefined,
+    );
     return {
       ...defaults,
       ...stored,
       quickQuestions: normalizeQuickQuestions(stored.quickQuestions),
+      welcomeTexts,
+      welcomeText: welcomeTexts.en,
     } as typeof defaults & { encryptedKey?: string };
   };
   const usage = (device: string) => {
@@ -196,6 +205,7 @@ export function createApp(options: Options) {
       companyName: s.companyName,
       companyUrl: s.companyUrl,
       welcomeText: s.welcomeText,
+      welcomeTexts: s.welcomeTexts,
       disclaimer: s.disclaimer,
       questionLimit: s.questionLimit,
       configured: !!s.encryptedKey,
@@ -569,10 +579,19 @@ export function createApp(options: Options) {
       return;
     }
     const { apiKey, ...values } = parsed.data;
+    const welcomeTexts = normalizeWelcomeTexts(
+      values.welcomeTexts,
+      values.welcomeText,
+    );
     const encryptedKey = apiKey?.trim()
       ? encrypt(apiKey.trim(), options.encryptionKey)
       : settings().encryptedKey;
-    const saved = { ...values, ...(encryptedKey ? { encryptedKey } : {}) };
+    const saved = {
+      ...values,
+      welcomeTexts,
+      welcomeText: welcomeTexts.en,
+      ...(encryptedKey ? { encryptedKey } : {}),
+    };
     db.prepare("UPDATE settings SET value=? WHERE id=1").run(
       JSON.stringify(saved),
     );
