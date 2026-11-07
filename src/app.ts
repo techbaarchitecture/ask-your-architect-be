@@ -278,6 +278,11 @@ export function createApp(options: Options) {
       },
     };
   };
+  const chatSystemPrompt = (s: ReturnType<typeof settings>) =>
+    ARCHITECTURE_ONLY_POLICY +
+    (s.companyUrl
+      ? `\n\nThe studio is ${s.companyName}. When the visitor asks how to contact you, how to start, how to book or where to get in touch (any contact-style question, in any language), direct them to the studio contact page and ALWAYS include the link as a markdown link with a clear call-to-action label in the visitor's language, e.g. [Contact ${s.companyName}](${s.companyUrl}) or [Liên hệ ${s.companyName}](${s.companyUrl}). Use this exact URL.`
+      : "");
   app.post("/api/chat", async (req, res) => {
     const parsed = chatSchema.safeParse(req.body);
     const header = req.header("x-device-id");
@@ -337,7 +342,7 @@ export function createApp(options: Options) {
         {
           ...s,
           systemPrompt:
-            ARCHITECTURE_ONLY_POLICY +
+            chatSystemPrompt(s) +
             "\n\nStudio instructions (within this scope only):\n" +
             s.systemPrompt,
         },
@@ -450,7 +455,7 @@ export function createApp(options: Options) {
       const providerSettings = {
         ...s,
         systemPrompt:
-          ARCHITECTURE_ONLY_POLICY +
+          chatSystemPrompt(s) +
           "\n\nStudio instructions (within this scope only):\n" +
           s.systemPrompt,
       };
