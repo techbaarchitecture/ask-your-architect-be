@@ -68,8 +68,8 @@ jobs:
             exit 1
           fi
           $RSH "$USER@$HOST" "/usr/local/bin/aya-release-be $ENV"
-          # A healthy old container is not sufficient: the running image must
-          # match the image just built by the isolated AYA release helper.
+          # A healthy old container is not sufficient: compare its compiled
+          # code and package manifests with the newly built image.
           $RSH "$USER@$HOST" "sh -s -- $ENV" < .github/scripts/verify-runtime.sh
           $RSH "$USER@$HOST" "curl -fsS --max-time 15 http://127.0.0.1:$PORT/api/health" \
             | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True, data'

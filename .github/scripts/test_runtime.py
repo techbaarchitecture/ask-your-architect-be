@@ -13,12 +13,8 @@ class RuntimeTests(unittest.TestCase):
             docker.write_text('''#!/bin/sh
 case "$*" in
   *State.Running*) [ "$FIXTURE" = stopped ] && echo false || echo true ;;
-  "inspect "*) echo sha256:manifest ;;
-  "image inspect "*)
-    case "$*" in
-      *latest*) [ "$FIXTURE" = mismatch ] && echo sha256:different || echo sha256:config ;;
-      *) echo sha256:config ;;
-    esac ;;
+  "exec "*" node "*) echo 'sha256:compiled dist/server.js' ;;
+  "run "*) [ "$FIXTURE" = mismatch ] && echo 'sha256:different dist/server.js' || echo 'sha256:compiled dist/server.js' ;;
   "exec "*) [ "$FIXTURE" != missing ] ;;
   *) exit 99 ;;
 esac
@@ -27,7 +23,7 @@ esac
             env = dict(os.environ, PATH=folder + os.pathsep + os.environ['PATH'], FIXTURE=mode)
             return subprocess.run(['sh', str(Path(__file__).with_name('verify-runtime.sh')), 'dev'], env=env, capture_output=True, text=True)
 
-    def test_manifest_and_config_reference_same_image(self):
+    def test_matching_runtime_artifacts_pass(self):
         self.assertEqual(self.run_fixture('same').returncode, 0)
 
     def test_different_running_image_fails(self):
