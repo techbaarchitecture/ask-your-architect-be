@@ -589,6 +589,122 @@ test("SSRF protection rejects private and metadata provider URLs before storing 
   }
 });
 
+test("admin translate localizes the English copy through the configured provider", async () => {
+  const seen: { model?: string; messages?: { content: string }[] }[] = [];
+  const fixture = createServer(async (req, res) => {
+    let raw = "";
+    for await (const part of req) raw += part;
+    const body = JSON.parse(raw);
+    seen.push(body);
+    res.setHeader("content-type", "application/json");
+    res.end(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                es: {
+                  welcome: "Bienvenido a B+A Architecture.",
+                  questions: [
+                    {
+                      title: "Explorar mi espacio",
+                      question:
+                        "¿Cómo puedo hacer que una casa pequeña se sienta más amplia?",
+                    },
+                  ],
+                },
+                zh: {
+                  welcome: "欢迎来到 B+A Architecture。",
+                  questions: [{ title: "探索空间", question: "怎样让小户型住得更宽敞？" }],
+                },
+                vi: {
+                  welcome: "Chào mừng đến B+A Architecture.",
+                  questions: [
+                    {
+                      title: "Khám phá không gian",
+                      question: "Làm sao để nhà nhỏ vẫn cảm thấy rộng rãi?",
+                    },
+                  ],
+                },
+              }),
+            },
+          },
+        ],
+      }),
+    );
+  });
+  fixture.listen(0, "127.0.0.1");
+  await once(fixture, "listening");
+  const baseUrl = `http://127.0.0.1:${(fixture.address() as any).port}/v1`;
+  const h = await harness();
+  try {
+    const token = (
+      await h.request("/api/admin/login", "POST", {
+        email: "admin@test.local",
+        password: "test-password-long-enough",
+      })
+    ).data.token;
+    const source = {
+      welcomeText: "Welcome to B+A Architecture.\nAsk anything.",
+      questions: [
+        {
+          title: "Explore my space",
+          question: "How can I make a small home feel more spacious?",
+        },
+      ],
+    };
+    assert.equal(
+      (await h.request("/api/admin/translate", "POST", source)).status,
+      401,
+    );
+    assert.equal(
+      (
+        await h.request(
+          "/api/admin/translate",
+          "POST",
+          { ...source, baseUrl },
+          token,
+        )
+      ).status,
+      503,
+    );
+    assert.equal(
+      (
+        await h.request("/api/admin/translate", "POST", { welcomeText: "" }, token)
+      ).status,
+      400,
+    );
+    const result = await h.request(
+      "/api/admin/translate",
+      "POST",
+      {
+        ...source,
+        provider: "openai",
+        model: "fixture-model",
+        baseUrl,
+        apiKey: "fixture-key",
+      },
+      token,
+    );
+    assert.equal(result.status, 200);
+    assert.equal(result.data.welcomeTexts.es, "Bienvenido a B+A Architecture.");
+    assert.equal(result.data.welcomeTexts.vi, "Chào mừng đến B+A Architecture.");
+    assert.equal(result.data.quickQuestions.zh[0].title, "探索空间");
+    assert.equal(result.data.quickQuestions.es[0].title, "Explorar mi espacio");
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].model, "fixture-model");
+    assert.ok(String(seen[0].messages?.[0]?.content).includes("["));
+    assert.equal(
+      (await h.request("/api/admin/settings", "GET", undefined, token)).data
+        .apiKeyConfigured,
+      false,
+    );
+  } finally {
+    await h.close();
+    await new Promise<void>((r) => fixture.close(() => r()));
+  }
+});
+
 test("login and public endpoints apply bounded IP rate limits", async () => {
   const h = await harness();
   try {

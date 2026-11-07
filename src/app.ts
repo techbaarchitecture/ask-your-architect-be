@@ -54,6 +54,41 @@ const chatSchema = z.object({
     .max(50)
     .refine((m) => m.at(-1)?.role === "user"),
 });
+const quickQuestionSchema = z.object({
+  title: z.string().trim().min(1).max(80),
+  question: z.string().trim().min(1).max(500),
+});
+const translateRequestSchema = z.object({
+  provider: z
+    .enum(["openai", "openai-compatible", "anthropic", "gemini"])
+    .optional(),
+  model: z.string().trim().min(1).max(200).optional(),
+  baseUrl: z.url().max(2048).optional(),
+  apiKey: z.string().max(400).optional(),
+  welcomeText: z.string().trim().min(1).max(4000),
+  questions: z.array(quickQuestionSchema).min(1).max(4),
+});
+const translatedLocaleSchema = z.object({
+  welcome: z.string().trim().min(1).max(4000),
+  questions: z.array(quickQuestionSchema).min(1).max(4),
+});
+const translatedSchema = z.object({
+  es: translatedLocaleSchema,
+  zh: translatedLocaleSchema,
+  vi: translatedLocaleSchema,
+});
+const TRANSLATE_INSTRUCTIONS = [
+  "You localize website copy for an architecture studio.",
+  "Translate the given English copy into Spanish (es), Simplified Chinese (zh) and Vietnamese (vi).",
+  "Rules:",
+  "- Keep the friendly, professional tone of an architecture advice assistant.",
+  '- Keep brand names such as "B+A Architecture" unchanged.',
+  '- Keep literal placeholders such as "[City Name]" and "[Property Address]" exactly as written.',
+  "- Preserve the line breaks of the welcome text.",
+  "- Keep question card titles short (aim for 40 characters or fewer).",
+  "- Return exactly the same number of questions per language, in the same order.",
+  '- Respond with ONLY minified JSON in this exact shape, no markdown, no commentary: {"es":{"welcome":"","questions":[{"title":"","question":""}]},"zh":{"welcome":"","questions":[{"title":"","question":""}]},"vi":{"welcome":"","questions":[{"title":"","question":""}]}}',
+].join("\n");
 import {
   randomBytes,
   scryptSync,
@@ -639,6 +674,82 @@ export function createApp(options: Options) {
         ok: false,
         message:
           "Provider request failed. Check provider settings and credentials.",
+      });
+    }
+  });
+  app.post("/api/admin/translate", async (req, res) => {
+    const s = settings();
+    const parsed = translateRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid translation request" });
+      return;
+    }
+    const providerSettings = {
+      provider: parsed.data.provider ?? s.provider,
+      model: parsed.data.model ?? s.model,
+      baseUrl: parsed.data.baseUrl ?? s.baseUrl,
+    };
+    try {
+      await providerTarget(providerSettings.baseUrl, options.allowPrivateProvider);
+    } catch {
+      res
+        .status(400)
+        .json({ error: "Provider URL is not allowed or cannot be resolved" });
+      return;
+    }
+    const key =
+      parsed.data.apiKey?.trim() ||
+      (s.encryptedKey ? decrypt(s.encryptedKey, options.encryptionKey) : "");
+    if (!key) {
+      res.status(503).json({ error: "Provider is not configured" });
+      return;
+    }
+    try {
+      const reply = await complete(
+        {
+          ...providerSettings,
+          systemPrompt: TRANSLATE_INSTRUCTIONS,
+          temperature: 0.2,
+          maxTokens: 2048,
+        },
+        key,
+        [
+          {
+            role: "user",
+            content: JSON.stringify({
+              welcome: parsed.data.welcomeText,
+              questions: parsed.data.questions,
+            }),
+          },
+        ],
+        options.allowPrivateProvider,
+        90000,
+      );
+      const body = reply.replace(/```(?:json)?/gi, "");
+      const start = body.indexOf("{");
+      const end = body.lastIndexOf("}");
+      if (start < 0 || end <= start)
+        throw new Error("Provider returned no JSON");
+      const data = translatedSchema.safeParse(
+        JSON.parse(body.slice(start, end + 1)),
+      );
+      if (!data.success) throw new Error("Provider returned unusable JSON");
+      res.json({
+        welcomeTexts: {
+          es: data.data.es.welcome.slice(0, 200),
+          zh: data.data.zh.welcome.slice(0, 200),
+          vi: data.data.vi.welcome.slice(0, 200),
+        },
+        quickQuestions: {
+          es: data.data.es.questions,
+          zh: data.data.zh.questions,
+          vi: data.data.vi.questions,
+        },
+      });
+    } catch {
+      res.status(502).json({
+        error:
+          "The AI translation failed. Check the AI connection and try again.",
       });
     }
   });
