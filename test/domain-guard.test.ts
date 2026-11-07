@@ -71,6 +71,7 @@ async function harness(decision = "BLOCK_EN") {
       apiKey: "scope-fixture-key",
       baseUrl: `http://127.0.0.1:${(upstream.address() as any).port}/v1`,
       systemPrompt: "Studio style: concise and friendly.",
+      companyUrl: "https://www.baarchitecture.com/contact",
     }),
   });
   assert.equal(saved.status, 200);
@@ -145,6 +146,53 @@ test("architecture follow-ups use context and retain locked policy plus studio i
     const prompt = h.calls[1].messages[0].content;
     assert.match(prompt, /ARCHITECTURE_ONLY_POLICY/);
     assert.match(prompt, /Studio style: concise and friendly/);
+  } finally {
+    await h.close();
+  }
+});
+
+test("scope policy treats hiring architects and contact/next-step follow-ups as in scope", async () => {
+  const h = await harness("ALLOW");
+  try {
+    const messages = [
+      {
+        role: "user",
+        content:
+          "Recommend an architectural design company that handles design, permits and construction management at reasonable fees",
+      },
+      { role: "assistant", content: "Look for a licensed design-build firm." },
+      { role: "user", content: "How can I contact you to start?" },
+    ];
+    const r = await h.request("/api/chat", {
+      deviceId: "scope-contact",
+      messages,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.data.reply, "Architecture fixture answer");
+    const classifierPrompt = h.calls[0].messages[0].content;
+    assert.match(classifierPrompt, /design-build firms, their services and fees/);
+    assert.match(classifierPrompt, /how to contact the studio/);
+    const answerPrompt = h.calls[1].messages[0].content;
+    assert.match(answerPrompt, /hiring or working with architects/);
+  } finally {
+    await h.close();
+  }
+});
+
+test("contact-style questions get the studio contact link in the answer prompt", async () => {
+  const h = await harness("ALLOW");
+  try {
+    const r = await h.request("/api/chat", {
+      deviceId: "scope-contact-link",
+      messages: [
+        { role: "user", content: "How can I contact you to start?" },
+      ],
+    });
+    assert.equal(r.status, 200);
+    const prompt = h.calls[1].messages[0].content;
+    assert.match(prompt, /ARCHITECTURE_ONLY_POLICY/);
+    assert.match(prompt, /direct them to the studio contact page/);
+    assert.match(prompt, /\[Contact B\+A Architecture\]\(https:\/\/www\.baarchitecture\.com\/contact\)/);
   } finally {
     await h.close();
   }
