@@ -19,6 +19,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Deployment probe regression tests
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
@@ -40,11 +42,11 @@ jobs:
           set -euo pipefail
           ENV=prod
           DEST=/opt/ask-your-architect/be/
-          HEALTH=https://askyourarchitect.org/api/health
+          PORT=4100
           if [ "${GITHUB_REF_NAME}" = dev ]; then
             ENV=dev
             DEST=/opt/ask-your-architect-dev/be/
-            HEALTH=https://dev.askyourarchitect.org/api/health
+            PORT=4101
           fi
           install -d -m 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
@@ -56,6 +58,23 @@ jobs:
             --exclude node_modules --exclude dist --exclude data --exclude .env \
             --exclude .git --exclude docker-compose.yml \
             ./ "$USER@$HOST:$DEST"
+          DIFF=$(rsync -aznci --delete -e "$RSH" \
+            --exclude node_modules --exclude dist --exclude data --exclude .env \
+            --exclude .git --exclude docker-compose.yml \
+            ./ "$USER@$HOST:$DEST")
+          if [ -n "$DIFF" ]; then
+            printf '%s\n' "$DIFF"
+            echo '::error::Deployed source differs from this commit'
+            exit 1
+          fi
           $RSH "$USER@$HOST" "/usr/local/bin/aya-release-be $ENV"
-          curl -fsS --max-time 30 "$HEALTH"
-          echo DEPLOY_OK
+          # A healthy old container is not sufficient: compare its compiled
+          # code and package manifests with the newly built image.
+          $RSH "$USER@$HOST" "sh -s -- $ENV" < .github/scripts/verify-runtime.sh
+          $RSH "$USER@$HOST" "curl -fsS --max-time 15 http://127.0.0.1:$PORT/api/health" \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True, data'
+          echo 'DEPLOY_OK: source checksums, running image and backend health verified'
+      - name: Public API smoke check
+        env:
+          PUBLIC_HEALTH: ${{ github.ref == 'refs/heads/main' && 'https://askyourarchitect.org/api/health' || 'https://dev.askyourarchitect.org/api/health' }}
+        run: python3 .github/scripts/public-smoke.py "$PUBLIC_HEALTH"
