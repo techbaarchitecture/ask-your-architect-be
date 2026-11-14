@@ -1,69 +1,54 @@
-# Optional architecture-chat archive (NocoBase Dev)
+# Architecture-chat archive and scope review
 
-The backend can archive **only accepted guest architecture questions with a fully successful AI reply**. Refusals, malformed/failed classifiers, provider failures, invalid requests, and admin provider tests are excluded. Existing scope enforcement, quota limits, authentication and provider SDK behavior are unchanged.
+Both accepted guest answers and scope-blocked refusals are durably archived when the optional server-side integration is enabled. Malformed/failed classifiers, provider failures, invalid requests and admin provider tests do not create exchanges. Classifier instructions, allowed scope, configured providers, settings and quota rules are unchanged.
 
-## Deployment target and collection management
+## Environment boundary
 
-The configured environment is **NocoBase Dev**, `https://dev.baarchitecture.cloud`; UAT, Production and local NocoBase are not modified. The secret-free [collection manifest](nocobase-chat-collection.json) reproduces the new schema. Apply it with an authorized schema administrator, not the runtime archive token.
+- AYA Dev (`dev.askyourarchitect.org`) → NocoBase Dev (`https://dev.baarchitecture.cloud/api`).
+- AYA production (`askyourarchitect.org`) → NocoBase CRM (`https://crm.baarchitecture.cloud/api`).
+- Each environment uses its own `aya_architecture_chats` collection and private ingestion key. Never cross-wire environments or copy live .env/SQLite into Git.
+- The dedicated runtime role `r_aya_chat_ingest` has create/view access only to this collection, not update/delete, settings or other CRM collections. Schema administration and human review use separate authorized staff sessions.
 
-The runtime service has dedicated role `r_aya_chat_ingest` with only collection-scoped create/view permissions (NocoBase `view` covers list/read). Anonymous access is denied; its key cannot read Leads, Contracts, Q&A or Users. Credentials remain in the protected backend environment, never this repository.
+## Provision before backend release
 
-In the native NocoBase UI: **Settings → Data sources → Main → Configure → Collections → Ask Your Architect — Chat History → Configure fields**. The direct collections route is `/admin/settings/data-source-manager/main/collections?type=main`. No CRM menus, pages, flowModels or existing workflows are changed. A separate staff table page can be configured with the native UI Builder when requested.
+1. Back up the target database. Create the base collection using [nocobase-chat-collection.json](nocobase-chat-collection.json). Preserve the database-enforced unique `event_id` constraint.
+2. Apply each entry of [archive-review-fields.json](archive-review-fields.json) using native `fields:apply` / `nb api data-modeling fields apply --body-file <single-field.json> -e <target> -y`. The file is an array of seven additive field payloads, not a collection-create body. Use a schema administrator; do not expand ingestion privileges. Select enums require their preset colors. Read back field definitions and visible enum labels.
+3. Ensure ingestion create/view permissions cover all fields below. Configure backend-only `NOCOBASE_API_URL`, `NOCOBASE_API_TOKEN` and optional `NOCOBASE_CHAT_COLLECTION` (default `aya_architecture_chats`) privately. Both URL/token unset disables archiving; a partial configuration fails startup. Credentials never belong in FE/public settings.
+4. Deploy to Dev, verify both API modes through UI/API plus exact CRM readback, then promote through a Dev→main PR. Apply the same additive schema on production before its backend release. Rollback may restore the prior backend while retaining additive fields and records; do not drop audit data or clear the outbox.
 
-## Setup
+| Field | Meaning |
+|---|---|
+| `event_id` | Unique server UUID, stable across delivery retries |
+| `visitor_id` | SHA-256 browser device identifier, never raw device ID/IP |
+| `question`, `answer` | Latest validated question and full answer/refusal; Markdown preserved |
+| `asked_at`, `answered_at` | Original server UTC event timestamps, not delivery time |
+| `provider`, `model` | Configuration used for that request's scope/answer calls |
+| `outcome` | `accepted` or `blocked` |
+| `scope_decision` | Actual `ALLOW`, `BLOCK_EN` or `BLOCK_VI` |
+| `scope_policy_version` | `sha256:<64 hex>` of the exact classifier instruction text |
+| `block_code` | `OFF_TOPIC` for blocked; empty for accepted |
+| `scope_context` | JSON string of exactly the classifier's prior context: last eight messages, each content bounded to 1,600 characters |
+| `review_status` | Accepted: `not_required`; blocked: `pending`; human review: `correctly_blocked` / `false_positive` |
+| `review_notes` | Initially empty; staff-owned notes |
 
-1. Create the NocoBase Dev collection `aya_architecture_chats` before enabling the integration. Add these writable fields:
+Built-in `createdAt` means remote synchronization time. New events explicitly populate every audit field. Legacy queued payloads remain unchanged and may have unknown classifier/version/context; do not invent historical decisions. Base archive records were accepted exchanges; the metadata default outcome is accepted and review is not_required. Blank legacy classifier/version/context remains unknown. No historical blocked questions can be reconstructed from an archive that did not collect them.
 
-   | Field         | Type / meaning                                                                                            |
-   | ------------- | --------------------------------------------------------------------------------------------------------- |
-   | `event_id`    | String, required, **unique database constraint/index**; server UUID v4                                    |
-   | `visitor_id`  | String; existing server SHA-256 hash of the device ID, not the raw ID                                     |
-   | `question`    | Long text; latest validated user message only, not conversation history                                   |
-   | `answer`      | Long text; complete markdown response, no truncation                                                      |
-   | `asked_at`    | Date/time; UTC ISO timestamp when the backend receives the chat request, before classification/generation |
-   | `answered_at` | Date/time; UTC ISO timestamp after successful answer generation                                           |
-   | `provider`    | String; provider selected for that request                                                                |
-   | `model`       | String; model selected for that request                                                                   |
+## Delivery, refunds and idempotency
 
-   Keep NocoBase's built-in `createdAt`: it is the **remote synchronization time**, not the original question or answer time. Delayed/retried synchronization must not replace `asked_at` / `answered_at`.
+- Before a successful answer/refusal, insert the complete event into `architecture_chat_outbox` in the same SQLite database as settings/quota. Blocked enqueue happens before refund. Local enqueue failure returns a sanitized error and refunds the one reservation exactly once, preserving prior usage.
+- Blocked exchanges still cost zero consultation questions. Classification itself may incur provider usage. FE retains refusals locally but excludes blocked pairs from later AI context. Archiving/review does not automatically widen scope or change prompts.
+- NocoBase delivery is asynchronous: default tick 5 seconds, at most 20 events per flush, one flight, sequential requests, 5-second header/body deadline. Remote downtime preserves the durable event without failing a successfully queued guest response. Redirects are refused; errors emit only a fixed sanitized warning.
+- Each delivery queries `event_id` before create and reads back after every create outcome, including duplicates, network failures and lost acknowledgements. Remove a local event only after all immutable fields present in its original payload match; timestamp-equivalent ISO forms are accepted. Legacy payloads are compared only on fields they contained.
+- Review status/notes are deliberately excluded from immutable confirmation. The worker never updates remote records and cannot overwrite a staff review. Conflicting immutable data retains the event, stops that flush batch and requires operator investigation; do not delete the queue to silence warnings.
+- Pending events survive backend restarts. Disabling the archive pauses delivery without deleting the queue. No automatic expiry or destructive retry limit exists; monitor disk space during sustained outages.
+- SQLite/WAL, the queue, scope context, remote archive and backups contain sensitive plaintext guest conversations. Apply access and retention controls. A crash after quota reservation can conservatively leave usage counted; the archive retries completed events, not unfinished provider calls.
 
-2. Create a backend-only API token restricted to **list and create** on this collection, including reading/filtering `event_id` and writing the listed fields. A unique remote `event_id` constraint is required for idempotency under concurrent workers or uncertain acknowledgements. A UI-only duplicate check is not sufficient.
+## Native review UI
 
-3. Privately add both settings to the backend environment (never the frontend, public settings, source code, shell output or chat):
+Use the existing **Ask Your Architect - Chat History** page (`/admin/yjqkv4v6k4k`) and native UI Builder, never DB-created flowModels. Show Scope outcome and Scope review in the table. In View details include the original question/answer and audit fields. Provide an Edit form containing only Scope review and Review notes so staff do not accidentally edit machine audit fields. Label `false_positive` as **Blocked by mistake**; `correctly_blocked` as **Correctly blocked**. Review is evidence for a later explicit policy change, not automatic training or scope expansion.
 
-   ```dotenv
-   NOCOBASE_API_URL=https://dev.baarchitecture.cloud/api
-   NOCOBASE_API_TOKEN=<privately supplied API token>
-   # Optional; this is the default:
-   NOCOBASE_CHAT_COLLECTION=aya_architecture_chats
-   ```
+## Security and verification
 
-   Leave **both URL and token unset/empty** to keep archiving disabled. A partial configuration fails startup with a sanitized error. Collection alone does not enable archiving. The `.env.example` entries are commented out so fresh setup remains opt-in. Production credentials are managed privately by the operator; automated tests use isolated databases and fixtures.
+Archive URLs require HTTPS without embedded credentials/query/fragment; collection names match `[A-Za-z_][A-Za-z0-9_]{0,99}`. Programmatic tests may explicitly allow exact loopback HTTP; there is no environment flag weakening production archive URL validation. `ALLOW_PRIVATE_PROVIDER` does not relax archive validation. Archive configuration is not returned by public/admin editable settings.
 
-4. After provisioning/configuration, build and restart the backend through the normal operator workflow. Submit a real accepted architecture question and verify the corresponding remote row using `event_id`, original UTC timestamps and full markdown. Separately check refusal/admin-test exclusion. Remote provisioning, real credentials and live UI verification are intentionally separate operator tasks.
-
-## Delivery and recovery
-
-- Before returning a successful guest reply, the backend synchronously inserts the complete event into `architecture_chat_outbox` in the **same SQLite database** as settings/quota. Failure of this durable local write cannot produce an unarchived success; it follows the sanitized 502/refund path.
-- The chat handler never awaits NocoBase. A single-flight background worker checks the queue every **5 seconds**, processing at most **20 events per flush**, sequentially. Its timer is unreferenced and is stopped by `createApp.close()`; shutdown also aborts an active HTTP request before closing SQLite. Closing is repeatable.
-- Each HTTP request has a **5-second deadline covering headers and response body**. Redirects are refused. HTTP/network/auth/schema errors retain queued data, log only a fixed sanitized warning, and retry on a later tick. A failing event ends that batch, preventing an outage from generating a burst of requests. No question, answer, token or remote URL is logged.
-- Every attempt first calls `GET /aya_architecture_chats:list?filter={"event_id":{"$eq":"<uuid>"}}&pageSize=1` (URL-encoded query). An existing exact `event_id` means the event is already delivered. Otherwise it sends the event JSON to `POST /aya_architecture_chats:create`.
-- After **every** create outcome, including duplicate/conflict, network failure, or unclear success, the worker queries the same ID again. It removes the local event **only after a remote read confirms that exact ID**. An unconfirmed create stays queued. A restart retries the original UUID/payload, rather than making a new event. Do not delete pending rows to clear warnings.
-- Queue contents persist across restarts. Disabling archiving preserves an existing queue but pauses its delivery; enabling it again resumes delivery. There is no automatic expiration or destructive retry limit. During a sustained outage, monitor local disk usage and fix the remote access/schema issue.
-- The outbox contains plaintext accepted questions and answers until acknowledged; protect SQLite, WAL files and backups as sensitive data. Existing encrypted provider-key handling is unchanged. Successfully synchronized events are removed from the outbox but remain in NocoBase (and may remain in backups/SQLite free pages). Apply the intended access controls and retention policy to both systems.
-
-## Configuration boundaries
-
-Archive settings are server-only and never returned through public config or admin editable settings. The URL must be HTTPS with no credentials, query or fragment. The collection must match `[A-Za-z_][A-Za-z0-9_]{0,99}`. HTTP is allowed only for exact loopback hosts in explicitly opted-in **programmatic test options** (`allowLoopbackHttp`); there is no environment flag enabling archive HTTP. `ALLOW_PRIVATE_PROVIDER` does not relax archive validation.
-
-Programmatic `createApp({ archive: ... })` options also support bounded test overrides: `intervalMs` (10–300000), `timeoutMs` (10–30000), and `batchSize` (1–100). `runtime.flushArchive()` allows deterministic operator/test flushing without changing the public HTTP API. Tests default to no archive; archive tests use isolated databases and loopback fixtures, not NocoBase Dev.
-
-## Verification
-
-```sh
-npm test
-npm run typecheck
-npm run build
-```
-
-The archive tests cover exact fields, UUID/device hashing, latest question/full markdown, timestamp boundaries, exclusions, nonblocking outage behavior, durable restart/recovery, preexisting IDs, duplicate/conflict and lost/unknown acknowledgements, false success, failed local enqueue, bounded single-flight batches, automatic timer delivery, headers/body deadlines, redirect refusal, sanitized logs, app/worker shutdown safety, and opt-in server environment wiring/validation.
+Run `npm test && npm run typecheck && npm run build`, deployment-probe tests, and production dependency audit. Tests use isolated databases/HTTP fixtures, covering both languages and API modes, exact metadata/context, legacy/review-safe idempotency, restart/outage/recovery, lost/false acknowledgements, immutable conflicts, enqueue failure with prior usage, streaming done ordering, exclusions, auth/security and shutdown. They do not replace live schema/provider/UI verification on Dev and production. Preserve attributable E2E rows for review.

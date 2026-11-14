@@ -1,0 +1,85 @@
+[
+  {
+    "collectionName": "aya_architecture_chats",
+    "name": "outcome",
+    "title": "Scope outcome",
+    "interface": "select",
+    "defaultValue": "accepted",
+    "enum": [
+      {
+        "value": "accepted",
+        "label": "Accepted",
+        "color": "green"
+      },
+      {
+        "value": "blocked",
+        "label": "Blocked",
+        "color": "orange"
+      }
+    ]
+  },
+  {
+    "collectionName": "aya_architecture_chats",
+    "name": "scope_decision",
+    "title": "Classifier decision",
+    "interface": "input",
+    "defaultValue": ""
+  },
+  {
+    "collectionName": "aya_architecture_chats",
+    "name": "scope_policy_version",
+    "title": "Scope policy version",
+    "interface": "input",
+    "defaultValue": ""
+  },
+  {
+    "collectionName": "aya_architecture_chats",
+    "name": "block_code",
+    "title": "Block code",
+    "interface": "input",
+    "defaultValue": ""
+  },
+  {
+    "collectionName": "aya_architecture_chats",
+    "name": "scope_context",
+    "title": "Bounded classifier context",
+    "interface": "textarea",
+    "defaultValue": ""
+  },
+  {
+    "collectionName": "aya_architecture_chats",
+    "name": "review_status",
+    "title": "Scope review",
+    "interface": "select",
+    "defaultValue": "not_required",
+    "enum": [
+      {
+        "value": "not_required",
+        "label": "Not required",
+        "color": "default"
+      },
+      {
+        "value": "pending",
+        "label": "Pending review",
+        "color": "orange"
+      },
+      {
+        "value": "correctly_blocked",
+        "label": "Correctly blocked",
+        "color": "green"
+      },
+      {
+        "value": "false_positive",
+        "label": "Blocked by mistake",
+        "color": "red"
+      }
+    ]
+  },
+  {
+    "collectionName": "aya_architecture_chats",
+    "name": "review_notes",
+    "title": "Review notes",
+    "interface": "textarea",
+    "defaultValue": ""
+  }
+]
