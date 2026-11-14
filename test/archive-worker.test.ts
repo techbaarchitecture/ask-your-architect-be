@@ -127,6 +127,81 @@ async function worker(
   };
 }
 
+test("immutable mismatch never confirms an event-id collision", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const h = await worker();
+  try {
+    const original = event();
+    h.archive.enqueue(original);
+    h.rows.push({ ...original, answer: "different answer" });
+    await h.archive.flush();
+    assert.equal(
+      h.db.prepare("SELECT COUNT(*) AS n FROM architecture_chat_outbox").get()!
+        .n,
+      1,
+    );
+    assert.equal(
+      h.rows.length,
+      1,
+      "never attempt another create for an existing event ID",
+    );
+  } finally {
+    await h.close();
+  }
+});
+
+test("reviewed remotely committed event reconciles without overwriting human review", async () => {
+  const h = await worker();
+  try {
+    const original = {
+      ...event(),
+      outcome: "blocked" as const,
+      scope_decision: "BLOCK_EN" as const,
+      scope_policy_version: "sha256:fixture",
+      block_code: "OFF_TOPIC" as const,
+      review_status: "pending" as const,
+      review_notes: "",
+      scope_context: "[]",
+    };
+    h.archive.enqueue(original);
+    const reviewed = {
+      ...original,
+      review_status: "false_positive" as const,
+      review_notes: "Human decision",
+    };
+    h.rows.push(reviewed);
+    await h.archive.flush();
+    assert.equal(
+      h.db.prepare("SELECT COUNT(*) AS n FROM architecture_chat_outbox").get()!
+        .n,
+      0,
+    );
+    assert.deepEqual(h.rows, [reviewed]);
+    assert.equal(h.calls(), 1);
+  } finally {
+    await h.close();
+  }
+});
+
+test("legacy queued payload delivers unchanged without inventing classification metadata", async () => {
+  const h = await worker();
+  try {
+    const original = event();
+    h.archive.enqueue(original);
+    await h.archive.flush();
+    assert.deepEqual(h.rows, [original]);
+    assert.equal(h.rows[0].scope_decision, undefined);
+    assert.equal(h.rows[0].outcome, undefined);
+    assert.equal(
+      h.db.prepare("SELECT COUNT(*) AS n FROM architecture_chat_outbox").get()!
+        .n,
+      0,
+    );
+  } finally {
+    await h.close();
+  }
+});
+
 test("concurrent flush calls share one flight with a bounded batch", async () => {
   const h = await worker({ batchSize: 2 });
   try {

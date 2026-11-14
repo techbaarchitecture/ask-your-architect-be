@@ -1,7 +1,7 @@
 # BA Architecture API
 
-Independent private repository: `hoangpham17/ask-your-architect-be`.
-Frontend repository: `hoangpham17/ask-your-architect-fe`.
+Client private repository: `techbaarchitecture/ask-your-architect-be`.
+Frontend repository: `techbaarchitecture/ask-your-architect` (FE subdirectory).
 Clone as sibling `BE` and `FE` directories to run the frontend's optional browser integration test.
 
 Local-first TypeScript / Express backend, Node **24+** and persistent SQLite (`node:sqlite`). Default listener: **127.0.0.1:4100**. No provider key is seeded and no live AI calls are made until an administrator supplies one.
@@ -69,7 +69,7 @@ This is a model-assisted relevance filter, not a guarantee against every possibl
 
 - Admin password is salted/scrypt hashed; password comparison is timing-safe. Random opaque sessions expire after 8 hours; only SHA-256 token hashes are persisted. Logout revokes the token immediately, including after restart.
 - API keys use AES-256-GCM encryption with a random IV and authentication tag, keyed by `ENCRYPTION_KEY`. Key hints are masked only. Neither upstream raw error bodies nor credentials are exposed in responses/logs.
-- SQLite stores settings, admin hash, hashed sessions, and hashed device quota counters. With the optional archive disabled (default), conversations are not stored. When enabled, successful accepted architecture question/answer events are durably queued in the same database until NocoBase confirms delivery. Protect the plaintext outbox and backups as sensitive data. Process umask is 0077; the data directory is created with mode 0700.
+- SQLite stores settings, admin hash, hashed sessions, and hashed device quota counters. With the optional archive disabled (default), conversations are not stored. When enabled, successful accepted answers and scope-blocked refusals are durably queued with review metadata in the same database until NocoBase confirms immutable event fields. Protect the plaintext outbox and backups as sensitive data. Process umask is 0077; the data directory is created with mode 0700.
 - Helmet headers, request IDs (`X-Request-Id`), and exact-origin CORS. Default `ALLOWED_ORIGINS=http://localhost:5178`; append the deployed frontend origin comma-separated when needed. No wildcard. No-origin requests remain available for local tools. Access logs are one JSON object per request (`requestId`, method, path without query, status, latency, IP) and never include bodies, tokens, or keys. `/api/health` is not logged.
 - Do not set `TRUST_PROXY=true`. Leave it `false` for a process that clients hit directly. When nginx (or another local reverse proxy) is the **only** way to reach the listener, set `TRUST_PROXY=1` so rate limits use `CF-Connecting-IP` then `X-Forwarded-For` from that hop. Keep `HOST=127.0.0.1` (or publish the container on loopback only). The proxy must overwrite client-supplied forwarded headers; otherwise spoofed IPs bypass limits. Device IDs are never used as the rate-limit key.
 - Provider URLs are admin-only. HTTPS is required by default. DNS is validated and pinned per request to stop private-address access and DNS rebinding. Loopback/private networks require explicit `ALLOW_PRIVATE_PROVIDER=true` (trusted local 9router); metadata/link-local/reserved addresses remain prohibited. Never expose a trusted private provider to untrusted admins.
@@ -78,7 +78,7 @@ This is a model-assisted relevance filter, not a guarantee against every possibl
 
 ## Optional NocoBase architecture-chat archive
 
-See [archive setup and delivery guarantees](docs/chat-archive.md) before enabling backend-only `NOCOBASE_API_URL` / `NOCOBASE_API_TOKEN` (optional `NOCOBASE_CHAT_COLLECTION`, default `aya_architecture_chats`). Provision the collection with a unique `event_id` constraint and restricted list/create token first. Accepted guest questions with successful replies are durably queued before success and synchronized in the background; refusals, classifier/provider errors and admin tests are excluded. Remote outages never block the chat response. `asked_at` / `answered_at` preserve original UTC event times; NocoBase `createdAt` records sync time. No frontend/API contract change is required.
+See [archive setup and delivery guarantees](docs/chat-archive.md) before enabling backend-only `NOCOBASE_API_URL` / `NOCOBASE_API_TOKEN` (optional `NOCOBASE_CHAT_COLLECTION`, default `aya_architecture_chats`). Provision the collection with a unique `event_id` constraint and restricted list/create token first. Accepted guest answers and scope-blocked refusals are durably queued before success and synchronized in the background; classifier/provider errors and admin tests are excluded. Apply the additive [audit-field manifest](docs/archive-review-fields.json) before releasing. Blocked exchanges remain quota-free and start pending human review; review does not automatically change scope. Remote outages never block the chat response. `asked_at` / `answered_at` preserve original UTC event times; NocoBase `createdAt` records sync time. No frontend/API contract change is required.
 
 ## Verification
 

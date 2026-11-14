@@ -19,6 +19,15 @@ export interface ChatArchiveEvent {
   answered_at: string;
   provider: string;
   model: string;
+  /** Optional only for durable events queued by older backend releases. */
+  outcome?: "accepted" | "blocked";
+  scope_decision?: "ALLOW" | "BLOCK_EN" | "BLOCK_VI";
+  scope_policy_version?: string;
+  block_code?: "" | "OFF_TOPIC";
+  review_status?:
+    "not_required" | "pending" | "correctly_blocked" | "false_positive";
+  review_notes?: string;
+  scope_context?: string;
 }
 
 function validateOptions(options: ChatArchiveOptions): ChatArchiveOptions {
@@ -55,6 +64,39 @@ function validateOptions(options: ChatArchiveOptions): ChatArchiveOptions {
   } catch {
     throw new Error("Invalid architecture archive configuration");
   }
+}
+
+/** Compare only immutable fields present in the original durable payload.
+ * Legacy payloads do not acquire invented classification; review belongs to humans.
+ */
+function confirmsEvent(
+  remote: ChatArchiveEvent,
+  expected: ChatArchiveEvent,
+): boolean {
+  const fields = [
+    "event_id",
+    "visitor_id",
+    "question",
+    "answer",
+    "asked_at",
+    "answered_at",
+    "provider",
+    "model",
+    "outcome",
+    "scope_decision",
+    "scope_policy_version",
+    "block_code",
+    "scope_context",
+  ] as const;
+  return fields.every((field) => {
+    if (expected[field] === undefined) return true;
+    if (field === "asked_at" || field === "answered_at")
+      return (
+        Number.isFinite(Date.parse(remote[field])) &&
+        Date.parse(remote[field]) === Date.parse(expected[field])
+      );
+    return remote[field] === expected[field];
+  });
 }
 
 /** Uses the application's SQLite database; never contains client-provided URLs. */
@@ -148,6 +190,7 @@ export class ChatArchive {
           JSON.stringify({ event_id: { $eq: row.event_id } }),
         );
         list.searchParams.set("pageSize", "1");
+        const expected = JSON.parse(row.payload as string) as ChatArchiveEvent;
         const data = (await this.request(list)) as { data: ChatArchiveEvent[] };
         if (!data.data.some((event) => event.event_id === row.event_id)) {
           try {
@@ -161,8 +204,11 @@ export class ChatArchive {
           const result = (await this.request(list)) as {
             data: ChatArchiveEvent[];
           };
-          if (!result.data.some((event) => event.event_id === row.event_id))
+          if (!result.data.some((event) => confirmsEvent(event, expected)))
             throw new Error("Archive not confirmed");
+        } else if (!data.data.some((event) => confirmsEvent(event, expected))) {
+          // Conflicting immutable data needs operator intervention, never update it.
+          throw new Error("Archive identity conflict");
         }
         if (!this.closed)
           this.db

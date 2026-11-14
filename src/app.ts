@@ -20,6 +20,8 @@ import {
   ARCHITECTURE_ONLY_POLICY,
   assessArchitectureScope,
   architectureRefusal,
+  scopeContext,
+  SCOPE_POLICY_VERSION,
 } from "./domain-policy.js";
 import { providerTarget } from "./network.js";
 import { ChatArchive, type ChatArchiveOptions } from "./chat-archive.js";
@@ -283,6 +285,31 @@ export function createApp(options: Options) {
     (s.companyUrl
       ? `\n\nThe studio is ${s.companyName}. When the visitor asks how to contact you, how to start, how to book or where to get in touch (any contact-style question, in any language), direct them to the studio contact page and ALWAYS include the link as a markdown link with a clear call-to-action label in the visitor's language, e.g. [Contact ${s.companyName}](${s.companyUrl}) or [Liên hệ ${s.companyName}](${s.companyUrl}). Use this exact URL.`
       : "");
+  const archiveExchange = (
+    device: string,
+    messages: import("./provider.js").Message[],
+    reply: string,
+    askedAt: string,
+    s: ReturnType<typeof settings>,
+    decision: "ALLOW" | "BLOCK_EN" | "BLOCK_VI",
+  ) =>
+    archive?.enqueue({
+      event_id: randomUUID(),
+      visitor_id: device,
+      question: messages.at(-1)!.content,
+      answer: reply,
+      asked_at: askedAt,
+      answered_at: new Date().toISOString(),
+      provider: s.provider,
+      model: s.model,
+      outcome: decision === "ALLOW" ? "accepted" : "blocked",
+      scope_decision: decision,
+      scope_policy_version: SCOPE_POLICY_VERSION,
+      block_code: decision === "ALLOW" ? "" : "OFF_TOPIC",
+      review_status: decision === "ALLOW" ? "not_required" : "pending",
+      review_notes: "",
+      scope_context: JSON.stringify(scopeContext(messages)),
+    });
   app.post("/api/chat", async (req, res) => {
     const parsed = chatSchema.safeParse(req.body);
     const header = req.header("x-device-id");
@@ -327,6 +354,15 @@ export function createApp(options: Options) {
         slot.ac.signal,
       );
       if (decision !== "ALLOW") {
+        // Enqueue before refund: the outer catch owns the single refund on failure.
+        archiveExchange(
+          device,
+          parsed.data.messages,
+          architectureRefusal(decision),
+          res.locals.askedAt,
+          s,
+          decision,
+        );
         db.prepare("UPDATE quota SET used=MAX(used-1,0) WHERE device=?").run(
           device,
         );
@@ -352,16 +388,14 @@ export function createApp(options: Options) {
         Math.max(1, deadline - Date.now()),
         slot.ac.signal,
       );
-      archive?.enqueue({
-        event_id: randomUUID(),
-        visitor_id: device,
-        question: parsed.data.messages.at(-1)!.content,
-        answer: reply,
-        asked_at: res.locals.askedAt,
-        answered_at: new Date().toISOString(),
-        provider: s.provider,
-        model: s.model,
-      });
+      archiveExchange(
+        device,
+        parsed.data.messages,
+        reply,
+        res.locals.askedAt,
+        s,
+        decision,
+      );
       res.json({ reply, usage: usage(device) });
     } catch (err) {
       db.prepare("UPDATE quota SET used=MAX(used-1,0) WHERE device=?").run(
@@ -426,6 +460,15 @@ export function createApp(options: Options) {
         slot.ac.signal,
       );
       if (decision !== "ALLOW") {
+        // Enqueue before refund: the outer catch owns the single refund on failure.
+        archiveExchange(
+          device,
+          parsed.data.messages,
+          architectureRefusal(decision),
+          res.locals.askedAt,
+          s,
+          decision,
+        );
         db.prepare("UPDATE quota SET used=MAX(used-1,0) WHERE device=?").run(
           device,
         );
@@ -507,23 +550,20 @@ export function createApp(options: Options) {
         return;
       }
 
+      if (fullReply.trim()) {
+        archiveExchange(
+          device,
+          parsed.data.messages,
+          fullReply,
+          res.locals.askedAt,
+          s,
+          decision,
+        );
+      }
+
       res.write(
         `data: ${JSON.stringify({ type: "done", usage: usage(device) })}\n\n`,
       );
-
-      if (fullReply.trim()) {
-        archive?.enqueue({
-          event_id: randomUUID(),
-          visitor_id: device,
-          question: parsed.data.messages.at(-1)!.content,
-          answer: fullReply,
-          asked_at: res.locals.askedAt,
-          answered_at: new Date().toISOString(),
-          provider: s.provider,
-          model: s.model,
-        });
-      }
-
       res.end();
     } catch (err) {
       db.prepare("UPDATE quota SET used=MAX(used-1,0) WHERE device=?").run(
